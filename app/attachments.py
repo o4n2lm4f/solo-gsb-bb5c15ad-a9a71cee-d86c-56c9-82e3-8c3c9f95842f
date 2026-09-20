@@ -83,7 +83,7 @@ def attachment_dir() -> Path:
     return path
 
 
-def _blob_path(digest: str) -> Path:
+def blob_path(digest: str) -> Path:
     # 两级分片（ab/cd/<64hex>），避免单目录文件过多
     return attachment_dir() / digest[:2] / digest[2:4] / digest
 
@@ -239,7 +239,7 @@ def save_attachment(
         with _blob_lock:
             conn.execute("BEGIN IMMEDIATE")
             try:
-                target = _blob_path(digest)
+                target = blob_path(digest)
                 if not target.exists():
                     # 新实体（或实体丢失但 blob 行仍在的修复路径）：
                     # 临时文件原子移入分片目录，blob 行用 INSERT OR IGNORE 幂等补齐
@@ -289,7 +289,7 @@ def _mark_status(
 
 def verify_blob(digest: str, expected_size: int) -> tuple[bool, Optional[str]]:
     """现场复算实体文件 SHA-256：(是否一致, 损坏原因)。"""
-    path = _blob_path(digest)
+    path = blob_path(digest)
     if not path.exists():
         return False, REASON_MISSING
     hasher = hashlib.sha256()
@@ -329,7 +329,7 @@ def verify_and_prepare_download(conn: Connection, attachment_id: int) -> dict[st
             status_code=409,
         )
     result = dict(get_attachment(conn, attachment_id) or {})
-    result["path"] = str(_blob_path(row["blob_digest"]))
+    result["path"] = str(blob_path(row["blob_digest"]))
     return result
 
 
@@ -394,7 +394,7 @@ def _scan_existence(conn: Connection, event_id: Optional[int] = None) -> None:
     when = now_text()
     changed = False
     for r in conn.execute(sql, params).fetchall():
-        if not _blob_path(r["blob_digest"]).exists():
+        if not blob_path(r["blob_digest"]).exists():
             conn.execute(
                 "UPDATE attachments SET status = ?, corruption_reason = ?, "
                 "last_verified_at = ? WHERE id = ?",
@@ -444,7 +444,7 @@ def delete_attachment(conn: Connection, attachment_id: int) -> dict[str, Any]:
             blob_removed = False
             if refs == 0:
                 conn.execute("DELETE FROM attachment_blobs WHERE digest = ?", (digest,))
-                path = _blob_path(digest)
+                path = blob_path(digest)
                 if path.exists():
                     path.unlink()
                 _prune_parents(path)

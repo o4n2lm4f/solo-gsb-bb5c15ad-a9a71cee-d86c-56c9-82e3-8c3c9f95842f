@@ -19,6 +19,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from sqlite3 import Connection
+from starlette.background import BackgroundTask
 
 from .attachments import (
     AttachmentError,
@@ -61,6 +62,12 @@ from .handovers import (
     refresh_handover_validity,
 )
 from .report import build_html, build_json, build_markdown
+from .seal_package import (
+    SealPackageError,
+    build_seal_package,
+    spool_upload,
+    verify_seal_package,
+)
 from .schemas import (
     BulkImportConfirm,
     EventCreate,
@@ -682,6 +689,47 @@ def export_report(
     body = build_json(sample, audit, signoffs, handovers, attachments)
     headers = {"Content-Disposition": f'attachment; filename="{_safe_filename(sample["code"], "json")}"'}
     return Response(content=body, media_type="application/json; charset=utf-8", headers=headers)
+
+
+# ---------- 证据封存包（导出 + 不落库校验） ----------
+
+@app.get("/api/samples/{sample_id}/seal-package")
+def export_seal_package(sample_id: int, conn: Connection = Depends(get_conn)):
+    """导出证据封存包 ZIP：JSON 清单 + 审计报告 + 全部未损坏附件。
+
+    元数据在同一数据库读事务中固定，写包前复核附件摘要；期间链路或附件
+    记录变化则中止（409），避免混合快照。
+    """
+    try:
+        zip_path, summary = build_seal_package(conn, sample_id)
+    except SealPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    headers = _attachment_headers(summary["filename"])
+    headers["X-Seal-Attachments"] = str(summary["attachments"])
+    headers["X-Seal-Excluded"] = str(summary["excluded"])
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        headers=headers,
+        background=BackgroundTask(os.unlink, zip_path),
+    )
+
+
+@app.post("/api/seal-packages/verify")
+async def verify_seal_package_route(
+    file: UploadFile = File(..., description="待校验的封存包 ZIP"),
+) -> dict[str, Any]:
+    """不落库校验封存包：限制解压总量与路径穿越，逐项核对清单、缺失、
+    多余文件与 SHA-256 摘要，返回中文差异。"""
+    tmp = None
+    try:
+        tmp = spool_upload(file.file)
+        return verify_seal_package(tmp)
+    except SealPackageError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    finally:
+        if tmp is not None:
+            os.unlink(tmp)
 
 
 # ---------- 前端静态页（挂在最后，避免吞掉 API 路由） ----------

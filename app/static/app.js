@@ -185,6 +185,7 @@
     renderTimeline();
     renderEvents();
     renderSignoffs();
+    renderSeal();
     resetForm();
   }
 
@@ -1083,6 +1084,140 @@
   findingHistoryModal.addEventListener("click", (e) => {
     if (e.target === findingHistoryModal) findingHistoryModal.hidden = true;
   });
+
+  // ---------- 证据封存包 ----------
+
+  const SEAL_ISSUE_TYPE_LABEL = {
+    manifest: "清单异常", structure: "结构异常", path_traversal: "路径穿越",
+    limit: "超出限制", missing: "缺失", extra: "多余",
+    size_mismatch: "大小不一致", digest_mismatch: "摘要异常",
+  };
+
+  function renderSeal() {
+    const atts = state.data.attachments || [];
+    const corrupt = atts.filter((a) => a.status === "corrupt").length;
+    $("#seal-export-hint").textContent = atts.length
+      ? `当前样本共 ${atts.length} 个附件记录` +
+        (corrupt ? `，其中 ${corrupt} 个损坏（导出时排除并登记进清单）` : "，均可封存")
+      : "当前样本暂无附件，封存包将只包含清单与审计报告";
+    $("#seal-export-error").hidden = true;
+    $("#seal-export-ok").hidden = true;
+  }
+
+  $("#btn-seal-export").addEventListener("click", async () => {
+    const errEl = $("#seal-export-error");
+    const okEl = $("#seal-export-ok");
+    errEl.hidden = true;
+    okEl.hidden = true;
+    const corrupt = (state.data.attachments || []).filter((a) => a.status === "corrupt").length;
+    if (
+      corrupt &&
+      !confirm(
+        `当前样本有 ${corrupt} 个附件已损坏，不会包含在封存包内（会在清单中登记为已排除）。仍要导出吗？`
+      )
+    )
+      return;
+    const btn = $("#btn-seal-export");
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`/api/samples/${state.currentId}/seal-package`);
+      if (!resp.ok) {
+        const payload = await resp.json().catch(() => null);
+        throw new Error(extractError(payload) || `导出失败（${resp.status}）`);
+      }
+      const blob = await resp.blob();
+      // 从 Content-Disposition 取服务端生成的文件名
+      const cd = resp.headers.get("Content-Disposition") || "";
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/i);
+      const fname = m ? decodeURIComponent(m[1]) : "seal_package.zip";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      const n = resp.headers.get("X-Seal-Attachments") || "0";
+      const x = Number(resp.headers.get("X-Seal-Excluded") || "0");
+      okEl.textContent =
+        `✓ 封存包已导出：${fname}（含 ${n} 个未损坏附件` +
+        (x ? `，另排除 ${x} 个损坏附件并已登记进清单` : "") +
+        "）。可用下方「校验封存包」复核。";
+      okEl.hidden = false;
+      toast("封存包已导出");
+    } catch (err) {
+      errEl.textContent = `✗ 导出失败：${err.message}`;
+      errEl.hidden = false;
+      toast(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("#btn-seal-verify").addEventListener("click", async () => {
+    const fileInput = $("#seal-verify-file");
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      toast("请先选择要校验的封存包 ZIP 文件", true);
+      return;
+    }
+    const box = $("#seal-verify-result");
+    const btn = $("#btn-seal-verify");
+    btn.disabled = true;
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const resp = await fetch("/api/seal-packages/verify", { method: "POST", body: form });
+      const payload = await resp.json().catch(() => null);
+      if (!resp.ok) throw new Error(extractError(payload) || `校验失败（${resp.status}）`);
+      renderSealVerify(payload);
+    } catch (err) {
+      box.hidden = false;
+      box.className = "seal-verify-result seal-bad";
+      box.innerHTML = `<b>校验未完成：</b>${esc(err.message)}`;
+      toast(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  function renderSealVerify(r) {
+    const box = $("#seal-verify-result");
+    box.hidden = false;
+    box.className = "seal-verify-result " + (r.valid ? "seal-ok" : "seal-bad");
+    const pkg = r.package || {};
+    const counts = r.counts || {};
+    const issues = r.issues || [];
+    const issueItems = issues
+      .map(
+        (it) => `
+      <li>
+        <span class="seal-issue-type">${esc(SEAL_ISSUE_TYPE_LABEL[it.type] || it.type)}</span>
+        <span class="seal-issue-msg">${esc(it.message)}</span>
+        ${it.path ? `<code class="digest">${esc(it.path)}</code>` : ""}
+      </li>`
+      )
+      .join("");
+    box.innerHTML = `
+      <div class="seal-verify-head">
+        <span class="badge ${r.valid ? "badge-pass" : "badge-fail"}">${r.valid ? "校验通过" : "校验未通过"}</span>
+        <span class="seal-summary">${esc(r.summary || "")}</span>
+      </div>
+      ${
+        pkg.sample_code
+          ? `<div class="muted-cell">包内样本：${esc(pkg.sample_code)}${
+              pkg.sample_name ? " · " + esc(pkg.sample_name) : ""
+            }　生成时间：${esc(pkg.generated_at || "—")}</div>`
+          : ""
+      }
+      <div class="seal-counts">
+        ${statChip(counts.declared_files ?? 0, "清单声明文件", "")}
+        ${statChip(counts.checked_files ?? 0, "已核对", r.valid ? "ok" : "")}
+        ${statChip(issues.length, "差异", issues.length ? "bad" : "muted")}
+      </div>
+      ${issueItems ? `<ul class="seal-issues">${issueItems}</ul>` : ""}`;
+  }
 
   // ---------- 事件增 / 改 / 删 ----------
 

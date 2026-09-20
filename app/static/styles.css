@@ -573,3 +573,43 @@ tr.row-invalid { background: #fffdf5; }
 }
 .att-uploader input { min-width: 150px; }
 tr.att-row-corrupt { background: #fff5f5; }
+
+/* ---------- 证据封存包 ---------- */
+.seal-export-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.seal-msg {
+  border-radius: 8px; padding: 9px 14px; margin: 8px 0;
+  font-size: 13px; line-height: 1.7;
+}
+.seal-msg-err { background: var(--bad-bg); border: 1px solid #f3b9b3; color: var(--bad-text); }
+.seal-msg-ok { background: var(--ok-bg); border: 1px solid #b7e4c7; color: #14532d; }
+.seal-verify-box {
+  border-top: 1px dashed var(--border);
+  padding-top: 12px; margin-top: 6px;
+}
+.seal-verify-result {
+  border-radius: 8px; padding: 12px 14px; margin-top: 10px; font-size: 13px;
+}
+.seal-verify-result.seal-ok { background: var(--ok-bg); border: 1px solid #b7e4c7; }
+.seal-verify-result.seal-bad { background: var(--bad-bg); border: 1px solid #f3b9b3; }
+.seal-verify-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.seal-summary { font-weight: 600; }
+.seal-counts { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.seal-issues { margin: 8px 0 0; padding: 0; list-style: none; }
+.seal-issues li {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  padding: 6px 9px; margin-bottom: 5px;
+  background: rgba(255, 255, 255, 0.65); border-radius: 6px;
+  font-size: 12.5px;
+}
+.seal-issue-type {
+  flex-shrink: 0; font-size: 11.5px; font-weight: 700;
+  padding: 1px 8px; border-radius: 4px;
+  background: var(--bad-text); color: #fff;
+}
+.seal-issue-msg { flex: 1; min-width: 200px; }

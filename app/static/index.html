@@ -181,6 +181,31 @@
           </div>
         </section>
 
+        <!-- 证据封存包 -->
+        <section class="card">
+          <div class="card-head">
+            <h3>证据封存包</h3>
+            <span class="head-hint">导出 ZIP（JSON 清单 + 审计报告 + 全部未损坏附件）；元数据在同一数据库读事务中固定，写包前复核附件摘要，期间链路或附件记录变化将中止</span>
+          </div>
+          <div class="seal-export-row">
+            <button id="btn-seal-export" class="btn btn-small">🗜 导出封存包（ZIP）</button>
+            <span id="seal-export-hint" class="head-hint"></span>
+          </div>
+          <div id="seal-export-error" class="seal-msg seal-msg-err" hidden></div>
+          <div id="seal-export-ok" class="seal-msg seal-msg-ok" hidden></div>
+          <div class="seal-verify-box">
+            <div class="att-toolbar">
+              <input type="file" id="seal-verify-file" accept=".zip,application/zip,application/x-zip-compressed" />
+              <button type="button" class="btn btn-small btn-primary" id="btn-seal-verify">校验封存包</button>
+            </div>
+            <p class="import-format-hint">
+              校验不读取数据库、不修改任何数据：逐项核对清单声明、缺失与多余文件、大小及
+              SHA-256 摘要，并限制解压总量、拦截路径穿越。
+            </p>
+            <div id="seal-verify-result" class="seal-verify-result" hidden></div>
+          </div>
+        </section>
+
         <!-- 双向交接确认 -->
         <section class="card">
           <div class="card-head">
