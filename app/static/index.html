@@ -293,6 +293,25 @@
             </table>
           </div>
         </section>
+
+        <!-- 证据封存包 -->
+        <section class="card">
+          <div class="card-head">
+            <h3>证据封存包</h3>
+            <span class="head-hint">将当前样本的元数据、审计报告与全部未损坏证据附件封存为 ZIP；导出在单一读事务内固定快照并逐项复核 SHA-256，期间数据变化则中止</span>
+          </div>
+          <div class="ev-toolbar">
+            <button type="button" class="btn btn-primary" id="btn-ev-export">📦 导出封存包 ZIP</button>
+            <button type="button" class="btn" id="btn-ev-verify-open">🔍 校验封存包</button>
+            <span class="head-hint" id="ev-hint"></span>
+          </div>
+          <div id="ev-export-result" class="ev-result" hidden></div>
+          <p class="import-format-hint">
+            封存包内含 <code>manifest.json</code>（样本 / 事件 / 附件逻辑关系、包内路径、大小与 SHA-256，
+            附清单封印摘要）、<code>audit_report.md</code> 审计报告与 <code>evidence/</code> 下的全部
+            <b>未损坏附件</b>；已损坏附件不封入包，而在清单中列明原因。校验入口不落库，自动检查缺失、多余与摘要异常。
+          </p>
+        </section>
       </div>
     </main>
   </div>
@@ -513,6 +532,24 @@
       <div id="finding-history-body" class="signoff-detail"></div>
       <div class="form-actions">
         <button type="button" id="btn-close-finding-history" class="btn btn-ghost">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 证据封存包校验弹窗（不落库） -->
+  <div id="evidence-verify-modal" class="modal-mask" hidden>
+    <div class="modal modal-wide">
+      <div class="card-head">
+        <h3>证据封存包校验</h3>
+        <span class="head-hint">校验过程不写库；限制解压总量与路径穿越，逐项核对清单 / 缺失 / 多余 / SHA-256 摘要</span>
+      </div>
+      <div class="att-toolbar">
+        <input type="file" id="ev-file" accept=".zip,application/zip" />
+        <button type="button" class="btn btn-small btn-primary" id="btn-ev-verify">开始校验</button>
+      </div>
+      <div id="ev-verify-result" class="ev-verify-result"></div>
+      <div class="form-actions">
+        <button type="button" id="btn-close-ev-verify" class="btn btn-ghost">关闭</button>
       </div>
     </div>
   </div>

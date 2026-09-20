@@ -573,3 +573,17 @@ tr.row-invalid { background: #fffdf5; }
 }
 .att-uploader input { min-width: 150px; }
 tr.att-row-corrupt { background: #fff5f5; }
+
+/* ---------- 证据封存包 ---------- */
+.ev-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 8px 0 10px;
+}
+.ev-result {
+  margin: 8px 0; padding: 10px 14px; border-radius: 8px;
+  font-size: 13.5px; line-height: 1.7;
+}
+.ev-result.ev-ok { background: #e6f7ed; color: #1a7f4b; border: 1px solid #b7e4c7; }
+.ev-result.ev-bad { background: #fdecec; color: #c0392b; border: 1px solid #f5c6c6; }
+.ev-verify-result { margin-top: 12px; }
+.ev-verify-result .signoff-meta { margin: 10px 0; }

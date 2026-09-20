@@ -185,6 +185,7 @@
     renderTimeline();
     renderEvents();
     renderSignoffs();
+    renderEvidenceHint();
     resetForm();
   }
 
@@ -1881,6 +1882,166 @@
       await renderAttachments(attState.eventId);
     } catch (err) {
       toast(err.message, true);
+    }
+  });
+
+  // ---------- 证据封存包 ----------
+
+  function renderEvidenceHint() {
+    const atts = state.data.attachments || [];
+    const corrupt = atts.filter((a) => a.status === "corrupt").length;
+    const blobs = new Set(atts.map((a) => a.digest)).size;
+    $("#ev-hint").textContent =
+      `当前样本 ${atts.length} 个附件记录（${blobs} 个去重实体）` +
+      (corrupt ? `，其中 ${corrupt} 个已损坏（损坏附件不封入包，仅在清单列明）` : "，均可封入");
+    $("#ev-export-result").hidden = true;
+  }
+
+  function showEvExportResult(ok, message) {
+    const el = $("#ev-export-result");
+    el.hidden = false;
+    el.className = "ev-result " + (ok ? "ev-ok" : "ev-bad");
+    el.innerHTML = ok ? `✓ ${esc(message)}` : `✗ 导出失败：${esc(message)}`;
+  }
+
+  $("#btn-ev-export").addEventListener("click", async () => {
+    const btn = $("#btn-ev-export");
+    btn.disabled = true;
+    $("#ev-export-result").hidden = true;
+    try {
+      const resp = await fetch(`/api/samples/${state.currentId}/evidence-package`);
+      if (!resp.ok) {
+        const payload = await resp.json().catch(() => null);
+        showEvExportResult(false, extractError(payload) || `导出失败（${resp.status}）`);
+        return;
+      }
+      const blob = await resp.blob();
+      const cd = resp.headers.get("content-disposition") || "";
+      const m = /filename\*=UTF-8''([^;]+)/.exec(cd) || /filename="([^"]+)"/.exec(cd);
+      const filename = m ? decodeURIComponent(m[1]) : "evidence_pack.zip";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showEvExportResult(true, `封存包已生成并开始下载：${filename}`);
+    } catch (err) {
+      showEvExportResult(false, err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  const evVerifyModal = $("#evidence-verify-modal");
+  $("#btn-ev-verify-open").addEventListener("click", () => {
+    $("#ev-file").value = "";
+    $("#ev-verify-result").innerHTML = "";
+    evVerifyModal.hidden = false;
+  });
+  $("#btn-close-ev-verify").addEventListener("click", () => (evVerifyModal.hidden = true));
+  evVerifyModal.addEventListener("click", (e) => {
+    if (e.target === evVerifyModal) evVerifyModal.hidden = true;
+  });
+
+  const EV_DIFF_KIND_LABEL = {
+    manifest: "清单异常",
+    missing: "文件缺失",
+    extra: "多余文件",
+    digest: "摘要 / 大小异常",
+    structure: "结构 / 路径安全",
+  };
+
+  function renderEvidenceVerifyResult(r) {
+    const c = r.counts || {};
+    const sample = r.sample || {};
+    const headCls = r.valid ? "import-ok" : "import-bad";
+    const chips = [
+      statChip(c.declared_attachments ?? 0, "清单附件", ""),
+      statChip(c.checked_files ?? 0, "已核对文件", "ok"),
+      statChip(c.missing ?? 0, "缺失", c.missing ? "bad" : "muted"),
+      statChip(c.extra ?? 0, "多余", c.extra ? "bad" : "muted"),
+      statChip(c.digest_errors ?? 0, "摘要异常", c.digest_errors ? "bad" : "muted"),
+      statChip(c.structure_errors ?? 0, "结构异常", c.structure_errors ? "bad" : "muted"),
+      statChip(c.excluded_corrupt ?? 0, "清单列明损坏", "warn"),
+    ].join("");
+
+    const meta = `
+      <div class="signoff-meta">
+        <div><span class="meta-lbl">封存格式</span>${esc(r.package_format || "—")} v${esc(r.package_version ?? "—")}</div>
+        <div><span class="meta-lbl">生成时间</span>${esc(r.generated_at || "—")}</div>
+        <div><span class="meta-lbl">样本</span>${esc(sample.code || "—")} · ${esc(sample.name || "—")}</div>
+        <div><span class="meta-lbl">清单封印</span>${
+          r.manifest_digest_ok === null
+            ? "—"
+            : r.manifest_digest_ok
+            ? '<span class="integrity-ok">✓ 一致</span>'
+            : '<span class="integrity-bad">✗ 不一致</span>'
+        }</div>
+      </div>`;
+
+    let diffHtml;
+    if (!r.diffs || !r.diffs.length) {
+      diffHtml = `<div class="import-summary import-ok">✓ ${esc(r.summary)}</div>`;
+    } else {
+      diffHtml = `
+        <div class="import-summary import-bad">✗ ${esc(r.summary)}</div>
+        <div class="table-wrap">
+          <table class="event-table">
+            <thead><tr><th>#</th><th>类别</th><th>包内路径</th><th>差异说明</th></tr></thead>
+            <tbody>
+              ${r.diffs
+                .map(
+                  (d, i) => `
+                <tr class="att-row-corrupt">
+                  <td class="col-ord">${i + 1}</td>
+                  <td><span class="badge badge-fail">${esc(EV_DIFF_KIND_LABEL[d.kind] || d.kind)}</span></td>
+                  <td class="muted-cell">${esc(d.path || "—")}</td>
+                  <td>${esc(d.message)}</td>
+                </tr>`
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    $("#ev-verify-result").innerHTML = `
+      <div class="import-summary ${headCls}">${chips}</div>
+      ${meta}
+      ${diffHtml}`;
+  }
+
+  $("#btn-ev-verify").addEventListener("click", async () => {
+    const fileInput = $("#ev-file");
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) {
+      toast("请先选择要校验的封存包 ZIP 文件", true);
+      return;
+    }
+    const btn = $("#btn-ev-verify");
+    btn.disabled = true;
+    try {
+      const buf = await file.arrayBuffer();
+      const resp = await fetch("/api/evidence-packages/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/zip" },
+        body: buf,
+      });
+      const payload = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        $("#ev-verify-result").innerHTML =
+          `<div class="import-summary import-bad">✗ ${esc(extractError(payload) || `校验失败（${resp.status}）`)}</div>`;
+        return;
+      }
+      renderEvidenceVerifyResult(payload);
+    } catch (err) {
+      $("#ev-verify-result").innerHTML =
+        `<div class="import-summary import-bad">✗ ${esc(err.message)}</div>`;
+    } finally {
+      btn.disabled = false;
     }
   });
 

@@ -41,6 +41,7 @@ from .bulk_import import (
     preview_bulk_import,
 )
 from .db import get_conn, init_db
+from .evidence import EvidenceError, build_evidence_zip, verify_evidence_bytes
 from .findings import (
     FindingError,
     build_queue,
@@ -682,6 +683,43 @@ def export_report(
     body = build_json(sample, audit, signoffs, handovers, attachments)
     headers = {"Content-Disposition": f'attachment; filename="{_safe_filename(sample["code"], "json")}"'}
     return Response(content=body, media_type="application/json; charset=utf-8", headers=headers)
+
+
+# ---------- 证据封存包（导出 ZIP + 不落库校验） ----------
+
+@app.get("/api/samples/{sample_id}/evidence-package")
+def export_evidence_package(
+    sample_id: int, conn: Connection = Depends(get_conn)
+) -> Response:
+    """导出证据封存包 ZIP：清单 + 审计报告 + 全部未损坏附件。
+
+    元数据在同一数据库读事务内固定，写包前后两次复核快照指纹与附件
+    SHA-256；期间链路或附件记录变化、实体缺失 / 摘要不一致均以 409
+    中止，绝不产出混合快照包。
+    """
+    try:
+        pack = build_evidence_zip(conn, sample_id)
+    except EvidenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    return Response(
+        content=pack["data"],
+        media_type=pack["content_type"],
+        headers=_attachment_headers(pack["filename"]),
+    )
+
+
+@app.post("/api/evidence-packages/verify")
+async def verify_evidence_package(request: Request) -> dict[str, Any]:
+    """上传封存包 ZIP 进行校验：不访问数据库、不落任何记录。
+
+    限制解压总量 / 文件数量 / 单文件大小并拒绝路径穿越；逐项核对清单、
+    缺失、多余与 SHA-256 摘要异常，返回中文差异。
+    """
+    data = await request.body()
+    try:
+        return verify_evidence_bytes(data)
+    except EvidenceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
 
 # ---------- 前端静态页（挂在最后，避免吞掉 API 路由） ----------
